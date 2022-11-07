@@ -1,0 +1,81 @@
+name: Push NGINX to ECR
+
+on:
+  push:
+    branches:
+      - prod
+      - staging
+
+jobs:
+  run-db-procedures:
+    runs-on: ubuntu-20.04
+
+    permissions: # necessary for AWS OIDC
+      id-token: write
+      contents: read
+
+# TODO: ADD THESE VARIABLES AS REPO SECRETS
+#      INSTANCE_DB_SG_ID: <db-sg-id>
+#      INSTANCE_DB_HOSTNAME: <db-hostname>
+#      INSTANCE_DB_USERNAME: <db-username>
+#      INSTANCE_DB_PASSWORD: <db-password>
+
+    steps:
+      - name: Create deployment context
+        uses: actions/github-script@v6
+        id: deploy-context
+        with:
+          script: |
+            const [, , refName] = context.ref.split('/');
+            core.setOutput('env', refName);
+            core.setOutput('awsAccountId', ${{secrets.AWS_ACCOUNT_ID_2IQ_MASTER}});
+            core.setOutput('awsRegion', 'eu-central-1');  // TODO hardcoded
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v1
+        with:
+          role-to-assume: arn:aws:iam::${{steps.deploy-context.outputs.awsAccountId}}:role/${{env.app}}-gha-access
+          aws-region: ${{steps.deploy-context.outputs.awsRegion}}
+
+      - name: Get runner IP address
+        id: ip
+        uses: haythem/public-ip@v1.2
+
+      - name: Whitelist runner IP address
+        run: |
+          aws ec2 authorize-security-group-ingress \
+            --group-id $AWS_INSTANCE_SG_ID \
+            --protocol tcp \
+            --port 22 \
+            --cidr ${{ steps.ip.outputs.ipv4 }}/32
+
+      - uses: actions/checkout@v3
+        with:
+          fetch-depth: 0
+
+      - name: Get changed files in the procedures folder
+        id: changed-files-specific
+        uses: tj-actions/changed-files@v34
+        with:
+          files: |
+            procedures/**
+
+      - name: Run step if any file(s) in the procedures folder change and send changes to db instance
+        if: steps.changed-files-specific.outputs.any_changed == 'true'
+        run: |
+          echo "One or more files in the procedures folder has changed."
+          echo "List all the files that have changed: ${{ steps.changed-files-specific.outputs.all_changed_files }}"
+          
+          for file in ${{ steps.changed-files.outputs.all_changed_files }}; do
+# TODO: FIX INSTRUCTION/ARGUMENTS FOR 'SQLCMD' COMMAND / EXTRACT DB-NAME FROM PATH: https://stackoverflow.com/questions/6121091/how-to-extract-directory-path-from-file-path
+            procedure=$(cat $file)   
+            sqlcmd -E -S $INSTANCE_DB_HOSTNAME -d <db-name> -U $INSTANCE_DB_USERNAME -P INSTANCE_DB_PASSWORD -Q $procedure
+          done
+
+      - name: Revoke runner IP address
+        run: |
+          aws ec2 revoke-security-group-ingress \
+            --group-id $AWS_INSTANCE_SG_ID \
+            --protocol tcp \
+            --port 22 \
+            --cidr ${{ steps.ip.outputs.ipv4 }}/32
