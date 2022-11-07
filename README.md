@@ -1,4 +1,4 @@
-# NGINX Docker Image
+# Run DB procedures
 
 ## Description
 

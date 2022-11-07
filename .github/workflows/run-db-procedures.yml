@@ -1,4 +1,4 @@
-name: Push NGINX to ECR
+name: Run DB procedures
 
 on:
   push:
