@@ -1,0 +1,61 @@
+service: ${self:custom.product}-${self:custom.subcomponent}
+
+frameworkVersion: '>=3.0.0 <4.0.0'
+
+plugins:
+  - serverless-plugin-git-variables
+  - '@walery/serverless-plugin-stencil'
+
+provider:
+  name: aws
+  region: us-east-1  # IAM user are not bounded to region, thus region is hardcoded and must not be change
+  stage: global  # this stack covers IAM permission for all envs
+  profile: ${opt:aws-profile, 'sandbox'}
+  deploymentBucket:
+    name: ${stencil(product-bucket):name}
+  deploymentPrefix: ${stencil(product-bucket):deploymentPrefix}
+  stackTags:
+    Env: ${self:provider.stage}
+
+custom:
+  product: run-db-procedures
+  subcomponent: gha-access
+  sgId: sg-0ffbaf30dac3cc34f
+
+resources:
+  - ${stencil(2iq):description}
+
+  - Resources:
+      AuthorizeAndRevokeDBAccessPolicy:
+        Type: AWS::IAM::ManagedPolicy
+        Properties:
+          ManagedPolicyName: !Sub ${AWS::StackName}-run-db-procedures
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Sid: AuthorizeAndRevokeDBAccess
+                Effect: Allow
+                Action:
+                  - ec2:AuthorizeSecurityGroupIngress
+                  - ec2:RevokeSecurityGroupIngress
+                Resource:
+                  - !Sub arn:aws:ec2:${AWS::Region}:${AWS::AccountId}:security-group/${self:custom.sgId}
+
+      GitHubActionRole:
+        Type: AWS::IAM::Role
+        Properties:
+          RoleName: ${self:service}
+          AssumeRolePolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Principal:
+                  Federated: ${cf(us-east-1):oidc-github-global.ActionsOidcProvider}
+                Action:
+                  - sts:AssumeRoleWithWebIdentity
+                Condition:
+                  ForAllValues:StringLike:
+                    token.actions.githubusercontent.com:aud: sts.amazonaws.com
+                    token.actions.githubusercontent.com:sub: repo:${stencil(account):companyName}/${self:custom.product}:*
+          ManagedPolicyArns:
+            - !Ref AuthorizeAndRevokeDBAccessPolicy
