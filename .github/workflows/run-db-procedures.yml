@@ -68,8 +68,16 @@ jobs:
           
           for file in ${{ steps.changed-files.outputs.all_changed_files }}; do
 # TODO: FIX INSTRUCTION/ARGUMENTS FOR 'SQLCMD' COMMAND / EXTRACT DB-NAME FROM PATH: https://stackoverflow.com/questions/6121091/how-to-extract-directory-path-from-file-path
-            procedure=$(cat $file)   
-            sqlcmd -E -S $INSTANCE_DB_HOSTNAME -d <db-name> -U $INSTANCE_DB_USERNAME -P INSTANCE_DB_PASSWORD -Q $procedure
+            procedure=$(cat $file)
+            db_name=${${file%/*/*}##*/} # fetch db_name from path ".../procedures/<db_name>/storedProcedures/<proc>"
+
+            echo "**** procedure ****"
+            echo "$procedure"
+
+            echo "**** db_name ****"
+            echo $db_name
+
+            sqlcmd -E -S $INSTANCE_DB_HOSTNAME -d $db_name -U $INSTANCE_DB_USERNAME -P INSTANCE_DB_PASSWORD -Q $procedure
           done
 
       - name: Revoke runner IP address
