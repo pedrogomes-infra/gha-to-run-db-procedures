@@ -1,4 +1,4 @@
-service: ${self:custom.product}-${self:custom.subcomponent}
+service: ${self:custom.product}-${self:custom.component}
 
 frameworkVersion: '>=3.0.0 <4.0.0'
 
@@ -8,8 +8,8 @@ plugins:
 
 provider:
   name: aws
-  region: us-east-1  # IAM user are not bounded to region, thus region is hardcoded and must not be change
-  stage: global  # this stack covers IAM permission for all envs
+  region: ${opt:region, 'eu-central-1'}
+  stage: ${opt:stage, 'staging'}
   profile: ${opt:aws-profile, 'sandbox'}
   deploymentBucket:
     name: ${stencil(product-bucket):name}
@@ -19,13 +19,17 @@ provider:
 
 custom:
   product: run-db-procedures
-  subcomponent: gha-access
-  sgId: sg-0ffbaf30dac3cc34f
+  component: gha-access
 
 resources:
   - ${stencil(2iq):description}
 
-  - Resources:
+  - Mappings:
+      SecurityGroupMap:
+        staging: sg-0ffbaf30dac3cc34f
+        prod: sg-999999999999999
+
+    Resources:
       AuthorizeAndRevokeDBAccessPolicy:
         Type: AWS::IAM::ManagedPolicy
         Properties:
@@ -39,12 +43,13 @@ resources:
                   - ec2:AuthorizeSecurityGroupIngress
                   - ec2:RevokeSecurityGroupIngress
                 Resource:
-                  - !Sub arn:aws:ec2:${AWS::Region}:${AWS::AccountId}:security-group/${self:custom.sgId}
+                  - !Sub arn:aws:ec2:${AWS::Region}:${AWS::AccountId}:security-group/${sgId}
+                  - sgId: !FindInMap [SecurityGroupMap, ${self:provider.stage}]
 
       GitHubActionRole:
         Type: AWS::IAM::Role
         Properties:
-          RoleName: ${self:service}
+          RoleName: ${self:service}-${self:provider.stage}
           AssumeRolePolicyDocument:
             Version: '2012-10-17'
             Statement:
